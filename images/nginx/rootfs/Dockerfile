@@ -20,6 +20,19 @@ RUN apk update \
   && apk add -U bash --no-cache \
   && /build.sh
 
+# Record the shared libraries the built binaries, modules and copied
+# OpenTelemetry libs need, as apk "so:" names, so the runtime stage installs
+# exactly those whatever Alpine names the packages (abseil-cpp subpackages,
+# for instance, change between Alpine releases). Libraries shipped inside
+# /usr/local (LuaJIT, ModSecurity, ...) or copied from the builder are skipped.
+RUN apk add --no-cache pax-utils \
+  && { find /usr/local -name '*.so*' -exec basename {} \; ; ls /usr/lib/ | grep '^libopentelemetry'; } | sort -u > /tmp/bundled \
+  && scanelf --needed --nobanner --format '%n#p' --recursive /usr/local /etc/nginx/modules /usr/lib/libopentelemetry* \
+  | tr ',' '\n' | grep -v '^$' | sort -u \
+  | grep -vxFf /tmp/bundled \
+  | sed 's/^/so:/' > /usr/local/runtime-deps.txt \
+  && echo "runtime deps:" && cat /usr/local/runtime-deps.txt
+
 # Use a multi-stage build
 FROM alpine:3.24.4
 
@@ -49,10 +62,7 @@ RUN apk update \
   yaml-cpp \
   dumb-init \
   tzdata \
-  grpc-cpp \
-  libprotobuf \
-  abseil-cpp-crc-cpu-detect \
-  abseil-cpp-vlog-config-internal \
+  $(cat /usr/local/runtime-deps.txt) \
   && ln -s /usr/local/nginx/sbin/nginx /sbin/nginx \
   && adduser -S -D -H -u 101 -h /usr/local/nginx \
   -s /sbin/nologin -G www-data -g www-data www-data \

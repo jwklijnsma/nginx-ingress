@@ -89,7 +89,7 @@ stdlib_fix=""
 for round in 1 2 3 4; do
   $CHECK_ONLY || go mod tidy
   echo "==> govulncheck (module scan), round $round"
-  findings="$("$GOVULNCHECK" -scan module -format json ./... | parse_findings)"
+  findings="$("$GOVULNCHECK" -scan module -format json | parse_findings)"
   [ -z "$findings" ] && { echo "  no fixable vulnerabilities"; break; }
   echo "$findings" | sed 's/^/  /'
   changed=false
@@ -118,7 +118,7 @@ if [ -n "$stdlib_fix" ]; then
 fi
 
 echo "==> Final check"
-remaining="$("$GOVULNCHECK" -scan module -format json ./... | parse_findings | grep -v '^stdlib ' || true)"
+remaining="$("$GOVULNCHECK" -scan module -format json | parse_findings | grep -v '^stdlib ' || true)"
 if [ -n "$remaining" ]; then
   echo "Fixable vulnerabilities remain:"; echo "$remaining" | sed 's/^/  /'
   status=2
