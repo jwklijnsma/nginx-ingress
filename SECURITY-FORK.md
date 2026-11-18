@@ -16,8 +16,13 @@ from 2026-11-18.
 | LuaJIT (openresty/luajit2) | v2.1-20250117 | v2.1-20261107 |
 | NDK / set-misc / headers-more / lua-upstream | 0.3.3 / 0.33 / 0.37 / 0.07 | 0.3.4 / 0.34 / 0.40 / 0.08 |
 | lua-cjson, resty-dns/-memcached/-redis/-string | 2.1.0.14, 0.23/0.17/0.31/0.16 | 2.1.0.20, 0.24/0.18/0.34/0.19 |
-| Go toolchain | 1.26.1 | 1.26.10 |
-| Images | registry.k8s.io | `ghcr.io/jwklijnsma/nginx-ingress/{nginx,controller}` (cosign-signed) |
+| Go toolchain | 1.26.1 | 1.26.11 |
+| Go modules | as released | vulnerable modules raised to fixed versions by `hack/fork/fix-go-vulns.sh` (in CI) |
+| ModSecurity (libmodsecurity) | v3.0.14 | v3.0.17 (now built with PCRE2) |
+| njs | 0.9.0 | 1.0.2 |
+| Alpine | 3.23.3 | 3.23 (latest point release), `patch` removed from runtime image |
+| kube-webhook-certgen | registry.k8s.io v1.6.9 | rebuilt with Go 1.26.11 and fixed modules |
+| Images | registry.k8s.io | `ghcr.io/jwklijnsma/nginx-ingress/{nginx,controller,kube-webhook-certgen}` (cosign-signed) |
 
 Patch notes:
 * `CVE-2025-23419` patch dropped: fixed in core since 1.27.4.
@@ -39,7 +44,7 @@ Patch notes:
 * Runtime smoke test passed: `resty.core` loads, and `init_by_lua`,
   `init_worker_by_lua`, `ssl_certificate_by_lua`, HTTP and stream `balancer_by_lua`,
   HTTP/2, njs and brotli all work.
-* The "Fork images" workflow checks `nginx -V` reports 1.31.9 in both base and
+* The "Docker build" workflow checks `nginx -V` reports 1.31.9 in both base and
   controller images, then runs a Trivy scan.
 
 ## NGINX CVEs fixed versus upstream v1.15.1 (NGINX 1.27.1)
@@ -88,9 +93,47 @@ source, and the mail modules aren't compiled in anyway.
 | CVE-2025-53859 | 1.29.1 (2025-08-13) | processing of a specially crafted login/password when using the "none" authentication method in the ngx_mail_smtp_module might cause worker process me… | Fixed |
 | CVE-2025-23419 | 1.27.4 (2025-02-05) | insufficient check in virtual servers handling with TLSv1.3 SNI allowed to reuse SSL sessions in a different virtual server, to bypass client SSL cert… | Fixed |
 
-Not covered here: controller-level CVEs (Go code, annotations). v1.15.1 already includes
-the Feb 2026 fixes (CVE-2026-24512, -1580, -24513, -24514). Go stdlib issues are
-handled by the toolchain bump.
+## Controller code CVEs
+
+| CVE | Issue | Fix in this repo |
+|---|---|---|
+| CVE-2026-116472 | The `mirror-target` annotation could aim mirror subrequests at the controller's unauthenticated internal API on `127.0.0.1:<status-port>` (`/configuration/*`), letting anyone who can create an Ingress rewrite backends, certificates or servers. | `buildMirrorLocations` marks mirror subrequests with `X-Ingress-Nginx-Mirror: 1`. The internal status server returns 403 for any request carrying that header (`nginx.tmpl`), and `configuration.lua` rejects it as a second layer. Covered by Go, Lua and e2e tests. Verified with the patched NGINX build: a mirror aimed at `/configuration/backends` gets 403, while the controller's own call still gets 200. |
+
+v1.15.1 already contains the Feb 2026 controller fixes (CVE-2026-24512, -1580, -24513, -24514).
+
+## Go toolchain and module CVEs
+
+Go **1.26.11** covers the standard-library CVEs published since v1.15.1 (built with 1.26.1).
+Among them: CVE-2026-32282, -42505, -39822, -39825, -39823, -42499, -33818, -56859, -56853,
+-56862, -56858, -56860, -94448, -97030, -78659, -56866, -97031, -94440, -78667, -78660,
+-78669, -78663, -94439, -97032, -111943 and -97054.
+
+Modules are fixed by `hack/fork/fix-go-vulns.sh`. It raises these known minimums, then
+raises every module `govulncheck -scan module` reports as fixable. It runs in the
+"Docker build" workflow, and on `main` it commits the resulting `go.mod`/`go.sum`:
+
+| Module | Minimum | CVEs |
+|---|---|---|
+| golang.org/x/net | v0.62.0 | CVE-2026-78661, -97045, -46600, -42506, -39821, -42502, -25680, -25681, -27136 (+ HTTP/2 ones above) |
+| golang.org/x/crypto | v0.56.0 | CVE-2026-56854, -56855, -78662, -39827…-39835, -42508, -46595, -46597, -46598 |
+| golang.org/x/text | v0.39.0 | CVE-2026-56852 |
+| golang.org/x/sys | v0.45.0 | CVE-2026-39824 |
+| google.golang.org/grpc | v1.83.2 | CVE-2026-84304, -84445, GHSA-hrxh-6v49-42gf |
+| go.opentelemetry.io/otel{,/trace} | v1.47.0 | CVE-2026-41178, -128085 |
+| helm.sh/helm/v4 | v4.1.4 | CVE-2026-35204, -35205 |
+| github.com/gomarkdown/markdown | fixed pseudo-version (from govulncheck) | CVE-2026-40890, CVE-2024-44337 |
+
+Known without a fix: `golang.org/x/crypto/openpgp` (GO-2026-5932, no fixed version
+upstream, not used by the controller).
+
+## Base image CVEs (besides NGINX)
+
+* libmodsecurity v3.0.17: CVE-2026-30923, -42268, -52747, -52761 (fixed in v3.0.16).
+* njs 1.0.2: CVE-2026-78689.
+* `patch` no longer in the runtime image: CVE-2026-56288, -56289.
+* Alpine packages (openssl, curl, libxml2, c-ares, nghttp2, pcre2, zlib): picked up by
+  `apk upgrade` on the latest Alpine 3.23 at build time. The weekly scheduled build
+  refreshes them.
 
 ## Known caveat
 

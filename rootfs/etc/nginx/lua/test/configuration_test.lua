@@ -56,6 +56,18 @@ describe("Configuration", function()
     _G.ngx = unmocked_ngx
   end)
 
+  describe("mirror subrequests (CVE-2026-116472)", function()
+    it("returns 403 and does not touch the configuration", function()
+      ngx.var.http_x_ingress_nginx_mirror = "1"
+      ngx.var.request_method = "POST"
+      ngx.var.request_uri = "/configuration/backends"
+      local s = spy.on(ngx, "print")
+      assert.has_no.errors(configuration.call)
+      assert.equal(ngx.HTTP_FORBIDDEN, ngx.status)
+      assert.spy(s).was_called_with("Forbidden")
+    end)
+  end)
+
   describe("Backends", function()
     context("Request method is neither GET nor POST", function()
       it("sends 'Only POST and GET requests are allowed!' in the response body", function()

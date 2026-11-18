@@ -39,8 +39,8 @@ export NGINX_DIGEST_AUTH=v1.0.0
 # Check for recent changes: https://github.com/owasp-modsecurity/ModSecurity-nginx/compare/v1.0.4...master
 export MODSECURITY_VERSION=v1.0.4
 
-# Check for recent changes: https://github.com/owasp-modsecurity/ModSecurity/compare/v3.0.14...v3/master
-export MODSECURITY_LIB_VERSION=v3.0.14
+# Check for recent changes: https://github.com/owasp-modsecurity/ModSecurity/compare/v3.0.17...v3/master
+export MODSECURITY_LIB_VERSION=v3.0.17
 
 # Check for recent changes: https://github.com/coreruleset/coreruleset/compare/v4.22.0...main
 export OWASP_MODSECURITY_CRS_VERSION=v4.22.0
@@ -108,8 +108,8 @@ export OPENTELEMETRY_CPP_VERSION=v1.19.0
 # Check for recent changes: https://github.com/open-telemetry/opentelemetry-proto/compare/v1.5.0...main
 export OPENTELEMETRY_PROTO_VERSION=v1.5.0
 
-# Check for recent changes: https://github.com/nginx/njs/compare/0.9.0...master
-export NJS_VERSION=0.9.0
+# Check for recent changes: https://github.com/nginx/njs/compare/1.0.2...master
+export NJS_VERSION=1.0.2
 
 export BUILD_PATH=/tmp/build
 
@@ -147,6 +147,7 @@ apk add \
   automake \
   openssl-dev \
   pcre-dev \
+  pcre2-dev \
   zlib-dev \
   linux-headers \
   libxslt-dev \
@@ -349,8 +350,11 @@ git submodule update
 sh build.sh
 
 # https://github.com/owasp-modsecurity/ModSecurity/issues/1909#issuecomment-465926762
-sed -i '115i LUA_CFLAGS="${LUA_CFLAGS} -DWITH_LUA_JIT_2_1"' build/lua.m4
-sed -i '117i AC_SUBST(LUA_CFLAGS)' build/lua.m4
+# (ModSecurity >= 3.0.16 sets -DWITH_LUA_JIT_2_1 itself; only patch older trees)
+if ! grep -q 'WITH_LUA_JIT_2_1' build/lua.m4; then
+  sed -i '115i LUA_CFLAGS="${LUA_CFLAGS} -DWITH_LUA_JIT_2_1"' build/lua.m4
+  sed -i '117i AC_SUBST(LUA_CFLAGS)' build/lua.m4
+fi
 
 #
 # As of Alpine v3.23.0, building ModSecurity fails with:
@@ -360,7 +364,9 @@ sed -i '117i AC_SUBST(LUA_CFLAGS)' build/lua.m4
 #
 # Sadly this has not been fixed upstream, yet, so we manually patch it here.
 #
-sed -i '24i #include <cstdint>' headers/modsecurity/collection/collection.h
+# (fixed upstream in ModSecurity 3.0.16; only patch older trees)
+grep -q '<cstdint>' headers/modsecurity/collection/collection.h || \
+  sed -i '24i #include <cstdint>' headers/modsecurity/collection/collection.h
 
 ./configure \
   --disable-doxygen-doc \

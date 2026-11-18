@@ -5,7 +5,9 @@
 global:
   image:
     # -- Registry host to pull images from.
-    registry: registry.k8s.io
+    # jwklijnsma/nginx-ingress: patched controller and kube-webhook-certgen live on GHCR.
+    # Override this for a mirror; images not built here (default backend) set their own registry.
+    registry: ghcr.io
 ## Overrides for generated resource names
 # See templates/_helpers.tpl
 # nameOverride:
@@ -25,14 +27,17 @@ controller:
   image:
     ## Keep false as default for now!
     chroot: false
-    # registry: registry.k8s.io
-    image: ingress-nginx/controller
+    # jwklijnsma/nginx-ingress: patched controller (NGINX 1.31.9, Go/CVE fixes).
+    # Only the non-chroot image is built by this repo.
+    # registry: ghcr.io
+    image: jwklijnsma/nginx-ingress/controller
     ## for backwards compatibility consider setting the full image url via the repository value below
     ## use *either* current default registry/image or repository format or installing chart by providing the values.yaml will fail
     ## repository:
-    tag: "v1.15.1"
-    digest: sha256:594ceea76b01c592858f803f9ff4d2cb40542cae2060410b2c95f75907d659e1
-    digestChroot: sha256:af31d00c9d82c612896b380a9003bd36843b7647b98e4588251c66325317bc72
+    tag: "v1.15.1-jwk.2"
+    # Pin to the digest from the "Docker build" workflow summary.
+    digest: ""
+    digestChroot: ""
     pullPolicy: IfNotPresent
     runAsNonRoot: true
     # -- This value must not be changed using the official image.
@@ -848,13 +853,13 @@ controller:
     patch:
       enabled: true
       image:
-        # registry: registry.k8s.io
-        image: ingress-nginx/kube-webhook-certgen
+        # registry: ghcr.io
+        image: jwklijnsma/nginx-ingress/kube-webhook-certgen
         ## for backwards compatibility consider setting the full image url via the repository value below
         ## use *either* current default registry/image or repository format or installing chart by providing the values.yaml will fail
         ## repository:
-        tag: v1.6.9
-        digest: sha256:01038e7de14b78d702d2849c3aad72fd25903c4765af63cf16aa3398f5d5f2dd
+        tag: v1.6.9-jwk.1
+        digest: ""
         pullPolicy: IfNotPresent
       # -- Provide a priority class name to the webhook patching job
       ##
@@ -1027,7 +1032,8 @@ defaultBackend:
   enabled: false
   name: defaultbackend
   image:
-    # registry: registry.k8s.io
+    # Not rebuilt by jwklijnsma/nginx-ingress, so pinned to the upstream registry.
+    registry: registry.k8s.io
     image: defaultbackend-amd64
     ## for backwards compatibility consider setting the full image url via the repository value below
     ## use *either* current default registry/image or repository format or installing chart by providing the values.yaml will fail

@@ -65,7 +65,7 @@ clusterDomain: cluster.local
 ## upstream controller v1.15.1 + NGINX 1.31.9 with the OpenResty 1.31.8.1 patch set.
 ## The Bitnami image (docker.io/bitnami/nginx-ingress-controller) is no longer updated and
 ## ships NGINX 1.27.1, which is affected by every 2026 NGINX CVE (incl. CVE-2026-123007).
-## Pin `digest` to the value from the fork's "Fork images" workflow summary.
+## Pin `digest` to the value from the fork's "Docker build" workflow summary.
 ## @param image.registry [default: REGISTRY_NAME] Nginx Ingress Controller image registry
 ## @param image.repository [default: REPOSITORY_NAME/nginx-ingress-controller] Nginx Ingress Controller image repository
 ## @skip image.tag Nginx Ingress Controller image tag (immutable tags are recommended)
@@ -76,7 +76,7 @@ clusterDomain: cluster.local
 image:
   registry: ghcr.io
   repository: jwklijnsma/nginx-ingress/controller
-  tag: v1.15.1-jwk.1
+  tag: v1.15.1-jwk.2
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images

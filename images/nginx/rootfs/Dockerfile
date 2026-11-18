@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-FROM alpine:3.24.4 AS builder
+FROM alpine:3.23 AS builder
 
 COPY . /
 
@@ -39,9 +39,9 @@ RUN apk update \
   bash \
   openssl \
   pcre \
+  pcre2 \
   zlib \
   ca-certificates \
-  patch \
   yajl \
   lmdb \
   libxml2 \

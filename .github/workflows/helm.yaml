@@ -1,0 +1,82 @@
+name: Helm chart build
+
+# Lints, unit-tests, renders and packages both charts, then publishes them to
+# oci://ghcr.io/<owner>/nginx-ingress/charts (not on pull requests).
+#   charts/ingress-nginx                    upstream chart -> patched GHCR images
+#   charts/bitnami-nginx-ingress-controller Bitnami chart  -> patched GHCR image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*-jwk.*"]
+    paths: ["charts/**", ".github/workflows/helm.yaml"]
+  pull_request:
+    paths: ["charts/**", ".github/workflows/helm.yaml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chart:
+    name: ${{ matrix.chart }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        chart: [ingress-nginx, bitnami-nginx-ingress-controller]
+    env:
+      DIR: charts/${{ matrix.chart }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Dependencies
+        run: helm dependency build "$DIR"
+
+      - name: Lint
+        run: helm lint "$DIR"
+
+      - name: Unit tests (helm-unittest)
+        if: matrix.chart == 'ingress-nginx'
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false || \
+            helm plugin install https://github.com/helm-unittest/helm-unittest.git
+          helm unittest "$DIR" --file "tests/**/*_test.yaml"
+
+      - name: Render and check images
+        run: |
+          helm template t "$DIR" > /tmp/default.yaml
+          echo "Images in default render:"
+          grep -E '^\s+image: ' /tmp/default.yaml | sort -u
+          # every image must be a patched GHCR build...
+          grep -E '^\s+image: ' /tmp/default.yaml | grep -v 'ghcr.io/jwklijnsma/nginx-ingress/' && \
+            { echo "::error::unpatched image in default render"; exit 1; } || true
+          # ...and the old vulnerable ones must be gone
+          ! grep -qE 'bitnami/nginx(-ingress-controller)?:|registry.k8s.io/ingress-nginx/(controller|kube-webhook-certgen)' /tmp/default.yaml
+          # DaemonSet variant renders too
+          if [ "${{ matrix.chart }}" = ingress-nginx ]; then
+            helm template t "$DIR" --set controller.kind=DaemonSet > /dev/null
+          else
+            helm template t "$DIR" --set kind=DaemonSet > /dev/null
+          fi
+
+      - name: Package
+        run: |
+          helm package "$DIR" -d /tmp/chart
+          ls -l /tmp/chart
+
+      - name: Publish to GHCR (OCI)
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push /tmp/chart/*.tgz "oci://ghcr.io/${{ github.repository_owner }}/nginx-ingress/charts"
+          echo "Published \`$(basename /tmp/chart/*.tgz)\` to oci://ghcr.io/${{ github.repository_owner }}/nginx-ingress/charts" >> "$GITHUB_STEP_SUMMARY"

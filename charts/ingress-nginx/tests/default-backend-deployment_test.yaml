@@ -145,7 +145,9 @@ tests:
           path: spec.template.spec.containers[0].securityContext.runAsGroup
           value: 1000
 
-  - it: should create a Deployment with a custom registry if `global.image.registry` is set
+  # jwklijnsma/nginx-ingress: the default backend pins registry.k8s.io (it is not
+  # rebuilt here), so a global registry override does not apply to it.
+  - it: should keep the default backend on registry.k8s.io when `global.image.registry` is set
     set:
       global.image.registry: custom.registry.io
       defaultBackend.enabled: true
@@ -154,7 +156,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: custom.registry.io/defaultbackend-amd64:v1.0.0-dev@sha256:faa2d18687f734994b6bd9e309e7a73852a81c30e1b8f63165fcd4f0a087e3cd
+          value: registry.k8s.io/defaultbackend-amd64:v1.0.0-dev@sha256:faa2d18687f734994b6bd9e309e7a73852a81c30e1b8f63165fcd4f0a087e3cd
 
   - it: should create a Deployment with a custom registry if `defaultBackend.image.registry` is set
     set:

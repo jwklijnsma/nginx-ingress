@@ -221,6 +221,13 @@ local function handle_backends()
 end
 
 function _M.call()
+  -- CVE-2026-116472: refuse mirror subrequests (see buildMirrorLocations)
+  if ngx.var.http_x_ingress_nginx_mirror then
+    ngx.status = ngx.HTTP_FORBIDDEN
+    ngx.print("Forbidden")
+    return
+  end
+
   if ngx.var.request_method ~= "POST" and ngx.var.request_method ~= "GET" then
     ngx.status = ngx.HTTP_BAD_REQUEST
     ngx.print("Only POST and GET requests are allowed!")

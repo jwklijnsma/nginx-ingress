@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/ingress-nginx/internal/ingress/annotations/authreq"
+	"k8s.io/ingress-nginx/internal/ingress/annotations/mirror"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/modsecurity"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/opentelemetry"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/ratelimit"
@@ -2086,5 +2087,32 @@ func TestCleanConf(t *testing.T) {
 			t.Error("failed to get diff for cleanConf", err)
 		}
 		t.Errorf("cleanConf result don't match with expected: %s", diff)
+	}
+}
+
+// CVE-2026-116472: mirror subrequests must be marked so the internal
+// status/configuration server can reject them.
+func TestBuildMirrorLocationsMarksSubrequests(t *testing.T) {
+	locs := []*ingress.Location{
+		{Mirror: mirror.Config{Source: "/_mirror-a", Target: "http://127.0.0.1:10246/configuration/backends", Host: "127.0.0.1"}},
+		{Mirror: mirror.Config{Source: "/_mirror-a", Target: "http://dup", Host: "dup"}},
+		{Mirror: mirror.Config{Source: "", Target: "http://skip", Host: "skip"}},
+	}
+
+	got := buildMirrorLocations(locs)
+
+	if strings.Count(got, "location = ") != 1 {
+		t.Fatalf("expected exactly one mirror location, got:\n%s", got)
+	}
+	for _, want := range []string{
+		`location = "/_mirror-a" {`,
+		"internal;",
+		`proxy_set_header Host "127.0.0.1";`,
+		`proxy_set_header X-Ingress-Nginx-Mirror "1";`,
+		`proxy_pass "http://127.0.0.1:10246/configuration/backends";`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("mirror location missing %q:\n%s", want, got)
+		}
 	}
 }

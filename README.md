@@ -5,17 +5,17 @@
 > nginx2root (CVE-2026-123007/-123633/-123634/-121810).
 > Details and the full CVE list are in [SECURITY-FORK.md](SECURITY-FORK.md).
 >
-> - Images: `ghcr.io/jwklijnsma/nginx-ingress/controller:v1.15.1-jwk.1`
->   (NGINX base: `ghcr.io/jwklijnsma/nginx-ingress/nginx:v2.2.9-jwk.1`), cosign-signed
+> - Images: `ghcr.io/jwklijnsma/nginx-ingress/controller:v1.15.1-jwk.2`
+>   (NGINX base: `ghcr.io/jwklijnsma/nginx-ingress/nginx:v2.2.9-jwk.2`), cosign-signed
 > - Bitnami-style Helm chart: [`charts/bitnami-nginx-ingress-controller`](charts/bitnami-nginx-ingress-controller),
 >   published as `oci://ghcr.io/jwklijnsma/nginx-ingress/charts/nginx-ingress-controller`
-> - Upstream chart: [`charts/ingress-nginx`](charts/ingress-nginx). Set
->   `controller.image.registry=ghcr.io`, `controller.image.image=jwklijnsma/nginx-ingress/controller`,
->   `controller.image.tag=v1.15.1-jwk.1`, `controller.image.digest=""`
+> - Upstream chart: [`charts/ingress-nginx`](charts/ingress-nginx), defaults to the patched controller and
+>   kube-webhook-certgen images (`oci://ghcr.io/jwklijnsma/nginx-ingress/charts/ingress-nginx`, version `4.15.1-jwk.2`)
+> - CI: **Docker build** (Go CVE fixes, Go + Lua tests, images) and **Helm chart build** (lint, unittest, publish)
 >
 > ```sh
 > helm install ingress oci://ghcr.io/jwklijnsma/nginx-ingress/charts/nginx-ingress-controller \
->   --version 12.0.3-jwk.1 -n ingress --create-namespace
+>   --version 12.0.3-jwk.2 -n ingress --create-namespace
 > ```
 
 ---
