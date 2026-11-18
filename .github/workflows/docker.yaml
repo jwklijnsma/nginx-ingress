@@ -1,5 +1,9 @@
 name: Docker build
 
+# Image tags: release runs (release.yaml) and v*-jwk.* tag pushes publish the
+# versions from the TAG files. Every other build (push to main, manual) adds a
+# "-main.<sha>" suffix, so released tags are never overwritten.
+#
 # 1. go-deps   : fix vulnerable Go modules (hack/fork/fix-go-vulns.sh). On a push
 #                to main a fix is committed back, and the rest of this run builds
 #                that commit. On PRs it only checks.
@@ -10,6 +14,16 @@ name: Docker build
 #                cosign and scanned with Trivy.
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: commit to build
+        type: string
+        required: true
+      release:
+        description: publish the plain release tags
+        type: boolean
+        default: false
   workflow_dispatch:
   push:
     branches: [main]
@@ -17,15 +31,13 @@ on:
     paths-ignore: ["**.md", "docs/**", "charts/**", ".github/workflows/helm.yaml"]
   pull_request:
     paths-ignore: ["**.md", "docs/**", "charts/**", ".github/workflows/helm.yaml"]
-  schedule:
-    - cron: "17 5 * * 1"   # weekly: pick up newly published Go advisories
 
 permissions:
   contents: read
 
 concurrency:
-  group: docker-${{ github.ref }}
-  cancel-in-progress: true
+  group: docker-${{ inputs.release && 'release' || github.ref }}
+  cancel-in-progress: ${{ !inputs.release }}
 
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}/nginx-ingress
@@ -39,8 +51,11 @@ jobs:
       contents: write
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      suffix: ${{ steps.suffix.outputs.suffix }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: GOLANG_VERSION
@@ -83,7 +98,7 @@ jobs:
             echo "::error::Vulnerable Go dependencies. Run hack/fork/fix-go-vulns.sh and commit the result."
             exit 1
           fi
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+          if [ "${GITHUB_REF}" != "refs/heads/main" ] || [ "${{ inputs.release }}" = "true" ]; then
             echo "::error::Fixes needed but ${GITHUB_REF} is not main; run hack/fork/fix-go-vulns.sh locally."
             exit 1
           fi
@@ -92,6 +107,15 @@ jobs:
           git commit -am "go: fix vulnerable dependencies (hack/fork/fix-go-vulns.sh)"
           git push origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Image tag suffix
+        id: suffix
+        run: |
+          if [ "${{ inputs.release }}" = "true" ] || [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "suffix=" >> "$GITHUB_OUTPUT"
+          else
+            echo "suffix=-main.$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          fi
 
   go-test:
     name: Go unit tests
@@ -138,7 +162,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build${{ env.PUSH == 'true' && ' and push' || '' }}
         run: |
-          TAG="$(cat images/nginx/TAG)"
+          TAG="$(cat images/nginx/TAG)${{ needs.go-deps.outputs.suffix }}"
           OUT=$([ "$PUSH" = true ] && echo --push || echo --load)
           docker buildx build \
             --platform "linux/${{ matrix.arch }}" --provenance=false \
@@ -149,7 +173,7 @@ jobs:
             -t "${REGISTRY}/nginx:${TAG}-${{ matrix.arch }}" $OUT images/nginx/rootfs
       - name: Check NGINX version and modules
         run: |
-          IMG="${REGISTRY}/nginx:$(cat images/nginx/TAG)-${{ matrix.arch }}"
+          IMG="${REGISTRY}/nginx:$(cat images/nginx/TAG)${{ needs.go-deps.outputs.suffix }}-${{ matrix.arch }}"
           docker run --rm "$IMG" nginx -V 2>&1 | tee /tmp/v
           grep -q 'nginx/1.31.9' /tmp/v
           docker run --rm "$IMG" sh -c 'ls /etc/nginx/modules/ && ! command -v patch'
@@ -175,7 +199,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Merge, sign
         run: |
-          T="${REGISTRY}/nginx:$(cat images/nginx/TAG)"
+          T="${REGISTRY}/nginx:$(cat images/nginx/TAG)${{ needs.go-deps.outputs.suffix }}"
           docker buildx imagetools create -t "$T" "$T-amd64" "$T-arm64"
           D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           cosign sign --yes "${T%:*}@$D"
@@ -191,7 +215,7 @@ jobs:
           ref: ${{ needs.go-deps.outputs.sha }}
       - name: Run busted inside the patched NGINX base image
         run: |
-          docker run --rm -v "$PWD:/w" -w /w "$(cat NGINX_BASE)" bash -ec '
+          docker run --rm -v "$PWD:/w" -w /w "${REGISTRY}/nginx:$(cat images/nginx/TAG)${{ needs.go-deps.outputs.suffix }}" bash -ec '
             apk add --no-cache git perl make gcc musl-dev unzip wget ca-certificates openssl >/dev/null
             git clone -q --depth 1 --branch v0.36 https://github.com/openresty/resty-cli /tmp/resty-cli
             cp /tmp/resty-cli/bin/* /usr/local/bin/
@@ -228,7 +252,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
           COMMIT_SHA: ${{ needs.go-deps.outputs.sha }}
           REPO_INFO: https://github.com/${{ github.repository }}
-        run: TAG="$(cat TAG)" build/build.sh
+        run: TAG="$(cat TAG)${{ needs.go-deps.outputs.suffix }}" build/build.sh
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v4
         if: env.PUSH == 'true'
@@ -238,19 +262,21 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build${{ env.PUSH == 'true' && ' and push' || '' }}
         run: |
-          BASE="$(cat NGINX_BASE)"
+          SFX="${{ needs.go-deps.outputs.suffix }}"
+          # the base built earlier in this run (same as NGINX_BASE on release runs)
+          BASE="${REGISTRY}/nginx:$(cat images/nginx/TAG)${SFX}"
           OUT=$([ "$PUSH" = true ] && echo --push || echo --load)
           docker buildx build \
             --platform "linux/${{ matrix.arch }}" --provenance=false \
             --build-arg BASE_IMAGE="$BASE" \
-            --build-arg VERSION="$(cat TAG)" \
+            --build-arg VERSION="$(cat TAG)${SFX}" \
             --build-arg TARGETARCH="${{ matrix.arch }}" \
             --build-arg COMMIT_SHA="${{ needs.go-deps.outputs.sha }}" \
             --build-arg BUILD_ID="${{ github.run_id }}" \
-            -t "${REGISTRY}/controller:$(cat TAG)-${{ matrix.arch }}" $OUT rootfs
+            -t "${REGISTRY}/controller:$(cat TAG)${SFX}-${{ matrix.arch }}" $OUT rootfs
       - name: Smoke test
         run: |
-          IMG="${REGISTRY}/controller:$(cat TAG)-${{ matrix.arch }}"
+          IMG="${REGISTRY}/controller:$(cat TAG)${{ needs.go-deps.outputs.suffix }}-${{ matrix.arch }}"
           docker run --rm --entrypoint /nginx-ingress-controller "$IMG" --version
           docker run --rm --entrypoint nginx "$IMG" -V 2>&1 | grep 'nginx/1.31.9'
           docker run --rm --entrypoint grep "$IMG" -q 'X-Ingress-Nginx-Mirror' /etc/nginx/lua/configuration.lua /etc/nginx/template/nginx.tmpl
@@ -278,7 +304,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build (Go cross-compiles; no QEMU needed for the binary)
         run: |
-          T="${REGISTRY}/kube-webhook-certgen:$(cat images/kube-webhook-certgen/TAG)"
+          T="${REGISTRY}/kube-webhook-certgen:$(cat images/kube-webhook-certgen/TAG)${{ needs.go-deps.outputs.suffix }}"
           if [ "$PUSH" = true ]; then
             docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
               --build-arg GOLANG_VERSION="$(cat GOLANG_VERSION)" \
@@ -314,7 +340,7 @@ jobs:
       - name: Merge, sign
         id: merge
         run: |
-          T="${REGISTRY}/controller:$(cat TAG)"
+          T="${REGISTRY}/controller:$(cat TAG)${{ needs.go-deps.outputs.suffix }}"
           docker buildx imagetools create -t "$T" "$T-amd64" "$T-arm64"
           D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           cosign sign --yes "${T%:*}@$D"

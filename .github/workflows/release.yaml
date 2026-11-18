@@ -1,0 +1,181 @@
+name: Weekly release
+
+# Every Monday (and on demand): fix vulnerable Go dependencies, bump all
+# "-jwk.N" versions, tag vX.Y.Z-jwk.N, build + sign the images (docker.yaml),
+# publish both charts (helm.yaml), then create a GitHub Release with the image
+# digests and the changes since the previous release.
+#
+# A weekly rebuild is worth doing even without code changes: the images are
+# rebuilt on the latest Alpine 3.23 packages (`apk upgrade`).
+
+on:
+  schedule:
+    - cron: "41 6 * * 1"   # Monday 06:41 UTC (07:41 CET)
+  workflow_dispatch:
+    inputs:
+      number:
+        description: "Release number N for -jwk.N (empty = previous + 1)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Bump versions and tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.tag.outputs.sha }}
+      version: ${{ steps.tag.outputs.version }}
+      previous: ${{ steps.tag.outputs.previous }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: GOLANG_VERSION
+          cache: false
+
+      - name: Fix vulnerable Go dependencies
+        id: fix
+        run: |
+          set +e
+          hack/fork/fix-go-vulns.sh .
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ $rc -eq 0 ] || [ $rc -eq 3 ] || exit $rc
+
+      - name: Switch to the Go version the stdlib fixes need
+        if: steps.fix.outputs.rc == '3'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: GOLANG_VERSION
+          cache: false
+
+      - name: Re-check controller with new Go
+        if: steps.fix.outputs.rc == '3'
+        run: hack/fork/fix-go-vulns.sh .
+
+      - name: Fix kube-webhook-certgen
+        run: hack/fork/fix-go-vulns.sh images/kube-webhook-certgen/rootfs
+
+      - name: Bump versions, commit, tag, push
+        id: tag
+        run: |
+          previous="$(git describe --tags --abbrev=0 --match 'v*-jwk.*' 2>/dev/null || true)"
+          version="$(hack/fork/bump-release.sh ${{ inputs.number }} | tail -n1)"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: ${version}"
+          git tag -a "${version}" -m "Release ${version}"
+          git push --atomic origin HEAD:main "refs/tags/${version}"
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "version=${version}"
+            echo "previous=${previous}"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Release ${version} (previous: ${previous:-none})" >> "$GITHUB_STEP_SUMMARY"
+
+  docker:
+    name: Images
+    needs: prepare
+    uses: ./.github/workflows/docker.yaml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      release: true
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      security-events: write
+    secrets: inherit
+
+  helm:
+    name: Charts
+    needs: [prepare, docker]
+    uses: ./.github/workflows/helm.yaml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      release: true
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, docker, helm]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: read
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PREVIOUS: ${{ needs.prepare.outputs.previous }}
+      REGISTRY: ghcr.io/${{ github.repository_owner }}/nginx-ingress
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write release notes
+        run: |
+          digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' | tr -d '"'; }
+          CTRL="${REGISTRY}/controller:$(cat TAG)"
+          BASE="${REGISTRY}/nginx:$(cat images/nginx/TAG)"
+          CERT="${REGISTRY}/kube-webhook-certgen:$(cat images/kube-webhook-certgen/TAG)"
+          CHART_UP="$(sed -nE 's/^version: (.*)/\1/p' charts/ingress-nginx/Chart.yaml)"
+          CHART_BN="$(sed -nE 's/^version: (.*)/\1/p' charts/bitnami-nginx-ingress-controller/Chart.yaml)"
+          RANGE="${PREVIOUS:+${PREVIOUS}..}${VERSION}"
+          {
+            echo "Weekly release of the patched ingress-nginx (NGINX $(sed -nE 's/^export NGINX_VERSION=//p' images/nginx/rootfs/build.sh), Go $(cat GOLANG_VERSION))."
+            echo
+            echo "## Images (multi-arch amd64/arm64, cosign-signed)"
+            echo
+            echo '```'
+            echo "${CTRL}@$(digest "$CTRL")"
+            echo "${BASE}@$(digest "$BASE")"
+            echo "${CERT}@$(digest "$CERT")"
+            echo '```'
+            echo
+            echo "Verify: \`cosign verify ${CTRL} --certificate-identity-regexp 'https://github.com/${{ github.repository }}/' --certificate-oidc-issuer https://token.actions.githubusercontent.com\`"
+            echo
+            echo "## Helm charts"
+            echo
+            echo '```sh'
+            echo "helm install ingress oci://${REGISTRY}/charts/ingress-nginx --version ${CHART_UP}"
+            echo "helm install ingress oci://${REGISTRY}/charts/nginx-ingress-controller --version ${CHART_BN}   # Bitnami-style"
+            echo '```'
+            echo
+            echo "## Changes since ${PREVIOUS:-the initial import}"
+            echo
+            git log --no-merges --format='- %s (%h)' "$RANGE" | grep -v '^- release: ' || echo "- Rebuild on the latest Alpine 3.23 packages (no source changes)"
+            echo
+            echo "Merged pull requests:"
+            git log --merges --format='- %s' "$RANGE" | grep -E 'pull request #' || echo "- none"
+            echo
+            echo "Security notes and the full CVE list: [SECURITY-FORK.md](https://github.com/${{ github.repository }}/blob/${VERSION}/SECURITY-FORK.md)"
+          } > /tmp/notes.md
+          cat /tmp/notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create release
+        run: gh release create "$VERSION" --title "$VERSION" --notes-file /tmp/notes.md --verify-tag --latest

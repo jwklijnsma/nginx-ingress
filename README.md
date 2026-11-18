@@ -11,7 +11,10 @@
 >   published as `oci://ghcr.io/jwklijnsma/nginx-ingress/charts/nginx-ingress-controller`
 > - Upstream chart: [`charts/ingress-nginx`](charts/ingress-nginx), defaults to the patched controller and
 >   kube-webhook-certgen images (`oci://ghcr.io/jwklijnsma/nginx-ingress/charts/ingress-nginx`, version `4.15.1-jwk.2`)
-> - CI: **Docker build** (Go CVE fixes, Go + Lua tests, images) and **Helm chart build** (lint, unittest, publish)
+> - CI: **Docker build** (Go CVE fixes, Go + Lua tests, images) and **Helm chart build** (lint, unittest, render checks)
+> - **Weekly release** every Monday (07:41 CET): Go CVE fixes, version bump to the next `-jwk.N`, signed images,
+>   charts and a [GitHub Release](https://github.com/jwklijnsma/nginx-ingress/releases) with digests. Builds from
+>   `main` are tagged `<version>-main.<sha>`; release tags are never overwritten. Manual: *Actions → Weekly release → Run workflow*.
 >
 > ```sh
 > helm install ingress oci://ghcr.io/jwklijnsma/nginx-ingress/charts/nginx-ingress-controller \
