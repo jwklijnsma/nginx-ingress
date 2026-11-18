@@ -1647,9 +1647,14 @@ func buildMirrorLocations(locs []*ingress.Location) string {
 		}
 
 		mapped.Insert(loc.Mirror.Source)
+		// The X-Ingress-Nginx-Mirror header marks mirror subrequests so the
+		// internal status/configuration server can refuse them
+		// (CVE-2026-116472: a mirror-target pointing at 127.0.0.1:<status-port>
+		// could otherwise reach the unauthenticated /configuration API).
 		buffer.WriteString(fmt.Sprintf(`location = %v {
 internal;
 proxy_set_header Host %v;
+proxy_set_header X-Ingress-Nginx-Mirror "1";
 proxy_pass %v;
 }
 

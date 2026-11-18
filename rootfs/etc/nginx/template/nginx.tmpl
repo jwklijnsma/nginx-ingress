@@ -689,6 +689,12 @@ http {
         listen 127.0.0.1:{{ .StatusPort }};
         set $proxy_upstream_name "internal";
 
+        # CVE-2026-116472: requests produced by the mirror-target annotation carry
+        # X-Ingress-Nginx-Mirror and must never reach this internal API.
+        if ($http_x_ingress_nginx_mirror) {
+            return 403;
+        }
+
         keepalive_timeout 0;
         gzip off;
 
