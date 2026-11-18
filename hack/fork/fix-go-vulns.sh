@@ -3,8 +3,8 @@
 #
 # 1. Raise modules to known-fixed minimum versions (advisories published after
 #    ingress-nginx was retired at v1.15.1; see SECURITY-FORK.md).
-# 2. Run govulncheck in *module* mode (what container scanners flag, not only
-#    reachable code) and raise every module that has a fixed release.
+# 2. Run govulncheck at *package* level (every vulnerable package the build
+#    imports, reachable or not) and raise every module that has a fixed release.
 #    Repeated until stable, because one bump can pull in another module.
 # 3. go mod tidy, build, and exit non-zero if any fixable vulnerability remains.
 #    Standard-library findings mean GOLANG_VERSION must be raised; the script
@@ -88,8 +88,8 @@ for entry in "${FLOORS[@]}"; do raise $entry; done
 stdlib_fix=""
 for round in 1 2 3 4; do
   $CHECK_ONLY || go mod tidy
-  echo "==> govulncheck (module scan), round $round"
-  findings="$("$GOVULNCHECK" -scan module -format json | parse_findings)"
+  echo "==> govulncheck (package scan), round $round"
+  findings="$("$GOVULNCHECK" -scan package -format json ./... | parse_findings)"
   [ -z "$findings" ] && { echo "  no fixable vulnerabilities"; break; }
   echo "$findings" | sed 's/^/  /'
   changed=false
@@ -118,7 +118,7 @@ if [ -n "$stdlib_fix" ]; then
 fi
 
 echo "==> Final check"
-remaining="$("$GOVULNCHECK" -scan module -format json | parse_findings | grep -v '^stdlib ' || true)"
+remaining="$("$GOVULNCHECK" -scan package -format json ./... | parse_findings | grep -v '^stdlib ' || true)"
 if [ -n "$remaining" ]; then
   echo "Fixable vulnerabilities remain:"; echo "$remaining" | sed 's/^/  /'
   status=2

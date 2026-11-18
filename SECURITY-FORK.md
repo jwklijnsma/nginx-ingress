@@ -109,7 +109,7 @@ Among them: CVE-2026-32282, -42505, -39822, -39825, -39823, -42499, -33818, -568
 -78669, -78663, -94439, -97032, -111943 and -97054.
 
 Modules are fixed by `hack/fork/fix-go-vulns.sh`. It raises these known minimums, then
-raises every module `govulncheck -scan module` reports as fixable. It runs in the
+raises every module `govulncheck -scan package` reports as fixable. It runs in the
 "Docker build" workflow, and on `main` it commits the resulting `go.mod`/`go.sum`:
 
 | Module | Minimum | CVEs |
