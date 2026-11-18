@@ -1,0 +1,329 @@
+name: Docker build
+
+# 1. go-deps   : fix vulnerable Go modules (hack/fork/fix-go-vulns.sh). On a push
+#                to main a fix is committed back, and the rest of this run builds
+#                that commit. On PRs it only checks.
+# 2. tests     : Go unit tests and Lua unit tests (Lua runs inside the patched
+#                NGINX base image).
+# 3. images    : NGINX base, controller and kube-webhook-certgen, amd64 + arm64
+#                on native runners, merged into multi-arch tags, signed with
+#                cosign and scanned with Trivy.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*-jwk.*"]
+    paths-ignore: ["**.md", "docs/**", "charts/**", ".github/workflows/helm.yaml"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "charts/**", ".github/workflows/helm.yaml"]
+  schedule:
+    - cron: "17 5 * * 1"   # weekly: pick up newly published Go advisories
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/nginx-ingress
+  PUSH: ${{ github.event_name != 'pull_request' }}
+
+jobs:
+  go-deps:
+    name: Go vulnerability fixes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: GOLANG_VERSION
+          cache: false
+
+      - name: Fix controller module
+        id: fix
+        run: |
+          set +e
+          hack/fork/fix-go-vulns.sh .
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          # 3 = stdlib needs a newer Go; GOLANG_VERSION was updated, re-run below
+          [ $rc -eq 0 ] || [ $rc -eq 3 ] || exit $rc
+
+      - name: Switch to the Go version the stdlib fixes need
+        if: steps.fix.outputs.rc == '3'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: GOLANG_VERSION
+          cache: false
+
+      - name: Re-check with new Go
+        if: steps.fix.outputs.rc == '3'
+        run: hack/fork/fix-go-vulns.sh .
+
+      - name: Fix kube-webhook-certgen module
+        run: hack/fork/fix-go-vulns.sh images/kube-webhook-certgen/rootfs
+
+      - name: Commit fixes (push to main) or fail (PR)
+        id: commit
+        run: |
+          if git diff --quiet; then
+            echo "No dependency changes needed."
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git --no-pager diff --stat
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::error::Vulnerable Go dependencies. Run hack/fork/fix-go-vulns.sh and commit the result."
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Fixes needed but ${GITHUB_REF} is not main; run hack/fork/fix-go-vulns.sh locally."
+            exit 1
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "go: fix vulnerable dependencies (hack/fork/fix-go-vulns.sh)"
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  go-test:
+    name: Go unit tests
+    needs: go-deps
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: GOLANG_VERSION
+      - name: go vet + unit tests
+        env:
+          PKG: k8s.io/ingress-nginx
+        run: |
+          go vet ./internal/... ./pkg/... ./cmd/...
+          sudo --preserve-env=PKG,PATH,GOPATH,GOCACHE,GOMODCACHE,HOME env "PATH=$PATH" test/test.sh
+
+  nginx-base:
+    name: nginx base (${{ matrix.arch }})
+    needs: go-deps
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build${{ env.PUSH == 'true' && ' and push' || '' }}
+        run: |
+          TAG="$(cat images/nginx/TAG)"
+          OUT=$([ "$PUSH" = true ] && echo --push || echo --load)
+          docker buildx build \
+            --platform "linux/${{ matrix.arch }}" --provenance=false \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ needs.go-deps.outputs.sha }}" \
+            --cache-from "type=gha,scope=nginx-${{ matrix.arch }}" \
+            --cache-to "type=gha,mode=max,scope=nginx-${{ matrix.arch }}" \
+            -t "${REGISTRY}/nginx:${TAG}-${{ matrix.arch }}" $OUT images/nginx/rootfs
+      - name: Check NGINX version and modules
+        run: |
+          IMG="${REGISTRY}/nginx:$(cat images/nginx/TAG)-${{ matrix.arch }}"
+          docker run --rm "$IMG" nginx -V 2>&1 | tee /tmp/v
+          grep -q 'nginx/1.31.9' /tmp/v
+          docker run --rm "$IMG" sh -c 'ls /etc/nginx/modules/ && ! command -v patch'
+
+  nginx-base-manifest:
+    needs: [go-deps, nginx-base]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge, sign
+        run: |
+          T="${REGISTRY}/nginx:$(cat images/nginx/TAG)"
+          docker buildx imagetools create -t "$T" "$T-amd64" "$T-arm64"
+          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          cosign sign --yes "${T%:*}@$D"
+          echo "nginx base: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
+
+  lua-test:
+    name: Lua unit tests
+    needs: [go-deps, nginx-base-manifest]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - name: Run busted inside the patched NGINX base image
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w "$(cat NGINX_BASE)" bash -ec '
+            apk add --no-cache git perl make gcc musl-dev unzip wget ca-certificates openssl >/dev/null
+            git clone -q --depth 1 --branch v0.36 https://github.com/openresty/resty-cli /tmp/resty-cli
+            cp /tmp/resty-cli/bin/* /usr/local/bin/
+            git clone -q --depth 1 --branch v3.13.0 https://github.com/luarocks/luarocks /tmp/luarocks
+            cd /tmp/luarocks && ./configure >/dev/null && make install >/dev/null
+            luarocks install busted >/dev/null
+            cd /w && resty -V && test/test-lua.sh'
+
+  controller:
+    name: controller (${{ matrix.arch }})
+    needs: [go-deps, go-test, nginx-base-manifest]
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: GOLANG_VERSION
+      - name: Build controller binaries
+        env:
+          PKG: k8s.io/ingress-nginx
+          ARCH: ${{ matrix.arch }}
+          COMMIT_SHA: ${{ needs.go-deps.outputs.sha }}
+          REPO_INFO: https://github.com/${{ github.repository }}
+        run: TAG="$(cat TAG)" build/build.sh
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build${{ env.PUSH == 'true' && ' and push' || '' }}
+        run: |
+          BASE="$(cat NGINX_BASE)"
+          OUT=$([ "$PUSH" = true ] && echo --push || echo --load)
+          docker buildx build \
+            --platform "linux/${{ matrix.arch }}" --provenance=false \
+            --build-arg BASE_IMAGE="$BASE" \
+            --build-arg VERSION="$(cat TAG)" \
+            --build-arg TARGETARCH="${{ matrix.arch }}" \
+            --build-arg COMMIT_SHA="${{ needs.go-deps.outputs.sha }}" \
+            --build-arg BUILD_ID="${{ github.run_id }}" \
+            -t "${REGISTRY}/controller:$(cat TAG)-${{ matrix.arch }}" $OUT rootfs
+      - name: Smoke test
+        run: |
+          IMG="${REGISTRY}/controller:$(cat TAG)-${{ matrix.arch }}"
+          docker run --rm --entrypoint /nginx-ingress-controller "$IMG" --version
+          docker run --rm --entrypoint nginx "$IMG" -V 2>&1 | grep 'nginx/1.31.9'
+          docker run --rm --entrypoint grep "$IMG" -q 'X-Ingress-Nginx-Mirror' /etc/nginx/lua/configuration.lua /etc/nginx/template/nginx.tmpl
+
+  certgen:
+    name: kube-webhook-certgen
+    needs: go-deps
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v3
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (Go cross-compiles; no QEMU needed for the binary)
+        run: |
+          T="${REGISTRY}/kube-webhook-certgen:$(cat images/kube-webhook-certgen/TAG)"
+          if [ "$PUSH" = true ]; then
+            docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+              --build-arg GOLANG_VERSION="$(cat GOLANG_VERSION)" \
+              -t "$T" --push images/kube-webhook-certgen/rootfs
+            D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            cosign sign --yes "${T%:*}@$D"
+            echo "kube-webhook-certgen: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            docker buildx build --platform linux/amd64 --provenance=false \
+              --build-arg GOLANG_VERSION="$(cat GOLANG_VERSION)" \
+              -t "$T" --load images/kube-webhook-certgen/rootfs
+          fi
+
+  controller-manifest:
+    needs: [go-deps, controller]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge, sign
+        id: merge
+        run: |
+          T="${REGISTRY}/controller:$(cat TAG)"
+          docker buildx imagetools create -t "$T" "$T-amd64" "$T-arm64"
+          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          cosign sign --yes "${T%:*}@$D"
+          echo "image=$T@$D" >> "$GITHUB_OUTPUT"
+          echo "controller: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Trivy (report)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.merge.outputs.image }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
