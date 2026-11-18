@@ -128,6 +128,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: GOLANG_VERSION
+      - name: Test environment (what upstream's test-runner image provides)
+        run: |
+          # directories the controller creates at start-up (see rootfs/Dockerfile)
+          sudo mkdir -p /etc/ingress-controller/{ssl,auth,geoip,telemetry} /etc/nginx /tmp/nginx
+          # envtest control plane for the store tests (KUBEBUILDER_ASSETS=/usr/local/bin)
+          ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.23 use 1.35.x --bin-dir /tmp/envtest -p path)"
+          sudo install -m 0755 "$ASSETS"/etcd "$ASSETS"/kube-apiserver "$ASSETS"/kubectl /usr/local/bin/
+          /usr/local/bin/kube-apiserver --version
       - name: go vet + unit tests
         env:
           PKG: k8s.io/ingress-nginx
