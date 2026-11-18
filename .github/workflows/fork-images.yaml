@@ -1,0 +1,240 @@
+name: Build (patched NGINX images + chart)
+
+# Builds the patched NGINX base image and the ingress-nginx controller image
+# for this fork and pushes them to GHCR. amd64 and arm64 build on native
+# runners (no QEMU), then get merged into one multi-arch tag and signed
+# keylessly with cosign.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "controller-v*-jwk.*"
+    paths:
+      - "images/nginx/**"
+      - "rootfs/**"
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "go.mod"
+      - "go.sum"
+      - "TAG"
+      - "NGINX_BASE"
+      - "GOLANG_VERSION"
+      - "charts/bitnami-nginx-ingress-controller/**"
+      - ".github/workflows/fork-images.yaml"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-images-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/nginx-ingress
+
+jobs:
+  nginx-base:
+    name: nginx base (${{ matrix.arch }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          TAG="$(cat images/nginx/TAG)"
+          docker buildx build \
+            --platform "linux/${{ matrix.arch }}" \
+            --provenance=false \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --cache-from "type=gha,scope=nginx-${{ matrix.arch }}" \
+            --cache-to "type=gha,mode=max,scope=nginx-${{ matrix.arch }}" \
+            -t "${REGISTRY}/nginx:${TAG}-${{ matrix.arch }}" \
+            --push images/nginx/rootfs
+
+      - name: Check NGINX version inside the image
+        run: |
+          TAG="$(cat images/nginx/TAG)"
+          docker run --rm "${REGISTRY}/nginx:${TAG}-${{ matrix.arch }}" nginx -V 2>&1 | tee /tmp/nginx-v.txt
+          grep -q 'nginx/1.31.9' /tmp/nginx-v.txt
+
+  nginx-base-manifest:
+    needs: nginx-base
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge and sign multi-arch manifest
+        run: |
+          TAG="$(cat images/nginx/TAG)"
+          docker buildx imagetools create -t "${REGISTRY}/nginx:${TAG}" \
+            "${REGISTRY}/nginx:${TAG}-amd64" "${REGISTRY}/nginx:${TAG}-arm64"
+          DIGEST="$(docker buildx imagetools inspect "${REGISTRY}/nginx:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          cosign sign --yes "${REGISTRY}/nginx@${DIGEST}"
+          echo "### nginx base: \`${REGISTRY}/nginx:${TAG}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pin it in NGINX_BASE as: ${REGISTRY}/nginx:${TAG}@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+
+  controller:
+    name: controller (${{ matrix.arch }})
+    needs: nginx-base-manifest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: GOLANG_VERSION
+          check-latest: true
+
+      - name: Build controller binaries
+        env:
+          PKG: k8s.io/ingress-nginx
+          ARCH: ${{ matrix.arch }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO_INFO: https://github.com/${{ github.repository }}
+        run: |
+          export TAG="$(cat TAG)"
+          go version
+          build/build.sh
+          ls -l "rootfs/bin/${ARCH}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push controller image
+        run: |
+          TAG="$(cat TAG)"
+          docker buildx build \
+            --platform "linux/${{ matrix.arch }}" \
+            --provenance=false \
+            --build-arg BASE_IMAGE="$(cat NGINX_BASE)" \
+            --build-arg VERSION="${TAG}" \
+            --build-arg TARGETARCH="${{ matrix.arch }}" \
+            --build-arg COMMIT_SHA="${{ github.sha }}" \
+            --build-arg BUILD_ID="${{ github.run_id }}" \
+            -t "${REGISTRY}/controller:${TAG}-${{ matrix.arch }}" \
+            --push rootfs
+
+      - name: Smoke test
+        run: |
+          TAG="$(cat TAG)"
+          IMG="${REGISTRY}/controller:${TAG}-${{ matrix.arch }}"
+          docker run --rm --entrypoint /nginx-ingress-controller "$IMG" --version
+          docker run --rm --entrypoint nginx "$IMG" -V 2>&1 | grep 'nginx/1.31.9'
+
+  controller-manifest:
+    needs: controller
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge and sign multi-arch manifest
+        id: merge
+        run: |
+          TAG="$(cat TAG)"
+          docker buildx imagetools create -t "${REGISTRY}/controller:${TAG}" \
+            "${REGISTRY}/controller:${TAG}-amd64" "${REGISTRY}/controller:${TAG}-arm64"
+          DIGEST="$(docker buildx imagetools inspect "${REGISTRY}/controller:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          cosign sign --yes "${REGISTRY}/controller@${DIGEST}"
+          echo "image=${REGISTRY}/controller:${TAG}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "### controller: \`${REGISTRY}/controller:${TAG}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trivy scan (report only)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.merge.outputs.image }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          exit-code: "0"
+
+  chart:
+    name: Bitnami chart (lint, template, publish)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CHART_DIR: charts/bitnami-nginx-ingress-controller
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Dependencies, lint, template
+        run: |
+          helm dependency build "$CHART_DIR"
+          helm lint "$CHART_DIR"
+          helm template t "$CHART_DIR" > /tmp/rendered.yaml
+          grep -q 'ghcr.io/jwklijnsma/nginx-ingress/controller' /tmp/rendered.yaml
+          ! grep -q 'bitnami/nginx:' /tmp/rendered.yaml
+          helm template t "$CHART_DIR" --set kind=DaemonSet > /dev/null
+      - name: Publish to GHCR (OCI)
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "$CHART_DIR" -d /tmp/chart
+          helm push /tmp/chart/*.tgz "oci://ghcr.io/${{ github.repository_owner }}/nginx-ingress/charts"
