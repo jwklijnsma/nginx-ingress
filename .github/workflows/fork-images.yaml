@@ -223,7 +223,7 @@ jobs:
       CHART_DIR: charts/bitnami-nginx-ingress-controller
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - name: Dependencies, lint, template
         run: |
           helm dependency build "$CHART_DIR"
