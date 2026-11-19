@@ -38,6 +38,11 @@ updates:
       - "release-note-none"
       - "ok-to-test"
     groups:
+      # Kubernetes staging modules only work at the same version: one PR for all
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/controller-runtime"
       go:
         update-types:
           - "patch"

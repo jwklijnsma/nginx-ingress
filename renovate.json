@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
+  "packageRules": [
+    {
+      "description": "Kubernetes staging modules (k8s.io/api, client-go, apiserver, ...) only work at the same version: update them in one PR, together with controller-runtime.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["k8s.io/**", "sigs.k8s.io/controller-runtime"],
+      "groupName": "kubernetes go modules"
+    }
+  ]
+}

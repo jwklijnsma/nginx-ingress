@@ -82,6 +82,35 @@ for mod, fixed, osv in sorted(out):
 }
 
 echo "==> Go: $(go version)"
+
+# Kubernetes staging modules (k8s.io/api, apimachinery, client-go, apiserver,
+# cli-runtime, kube-aggregator, ...) are released together and only work at
+# the same version. Bots bump them one by one, which leaves e.g. client-go
+# v0.35 importing API groups that k8s.io/api v0.37 has removed. Move all of
+# them to the highest version any of them is at, before anything else.
+align_k8s() {
+  local mods target
+  mods="$(go mod edit -json | python3 -c '
+import json, re, sys
+for r in json.load(sys.stdin).get("Require") or []:
+    if re.fullmatch(r"k8s\.io/[a-z0-9-]+", r["Path"]) and re.fullmatch(r"v0\.[1-9][0-9]*\.[0-9]+", r["Version"]):
+        print(r["Path"], r["Version"])')"
+  [ -n "$mods" ] || return 0
+  target="$(awk '{print $2}' <<<"$mods" | sort -V | tail -n1)"
+  local args=()
+  while read -r m v; do
+    if [ "$v" != "$target" ]; then echo "  $m $v -> $target"; args+=("$m@$target"); fi
+  done <<<"$mods"
+  if [ ${#args[@]} -gt 0 ]; then
+    if $CHECK_ONLY; then echo "  (check only: k8s.io modules not aligned)"; return 0; fi
+    # edit first: go get cannot load packages while the build list is inconsistent
+    for a in "${args[@]}"; do go mod edit -require="$a"; done
+    go mod tidy
+  fi
+}
+echo "==> Aligning k8s.io staging modules"
+align_k8s
+
 echo "==> Raising known-vulnerable modules to fixed minimums"
 for entry in "${FLOORS[@]}"; do raise $entry; done
 
