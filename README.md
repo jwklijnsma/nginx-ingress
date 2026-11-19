@@ -18,6 +18,9 @@
 > - Upstream chart: [`charts/ingress-nginx`](charts/ingress-nginx), defaults to the patched controller and
 >   kube-webhook-certgen images (`oci://ghcr.io/jwklijnsma/nginx-ingress/charts/ingress-nginx`, version `4.15.1-jwk.3`)
 > - CI: **Docker build** (Go CVE fixes, Go + Lua tests, images) and **Helm chart build** (lint, unittest, render checks)
+> - **Bot PRs fix and merge themselves**: every 30 min *Autofix and merge bot PRs* brings Dependabot/Renovate PRs
+>   up to date, runs `go mod tidy` + vulnerability fixes, re-runs CI and squash-merges green ones. PRs it cannot fix
+>   get the `autofix-failed` label and a comment.
 > - **Weekly release** every Monday (07:41 CET): Go CVE fixes, version bump to the next `-jwk.N`, signed images,
 >   charts and a [GitHub Release](https://github.com/jwklijnsma/nginx-ingress/releases) with digests. Builds from
 >   `main` are tagged `<version>-main.<sha>`; release tags are never overwritten. Manual: *Actions → Weekly release → Run workflow*.

@@ -27,6 +27,11 @@ on:
         type: boolean
         default: false
   workflow_dispatch:
+    inputs:
+      verify_only:
+        description: "Build and test like a pull request: push no images, commit nothing (used by autofix-prs.yaml)"
+        type: boolean
+        default: false
   push:
     branches: [main]
     tags: ["v*-jwk.*"]
@@ -43,7 +48,9 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io/${{ github.repository_owner }}/nginx-ingress
-  PUSH: ${{ github.event_name != 'pull_request' }}
+  # pull requests and verify-only runs build and test but publish nothing
+  VERIFY: ${{ github.event_name == 'pull_request' || inputs.verify_only == true }}
+  PUSH: ${{ github.event_name != 'pull_request' && inputs.verify_only != true }}
 
 jobs:
   go-deps:
@@ -98,8 +105,8 @@ jobs:
             exit 0
           fi
           git --no-pager diff --stat
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "::error::Vulnerable Go dependencies. Run hack/fork/fix-go-vulns.sh and commit the result."
+          if [ "$VERIFY" = "true" ]; then
+            echo "::error::Go modules need changes (go mod tidy and/or vulnerability fixes). Run hack/fork/fix-go-vulns.sh and commit the result; the autofix-prs workflow does this for bot PRs."
             exit 1
           fi
           if [ "${GITHUB_REF}" != "refs/heads/main" ] || [ "${{ inputs.release }}" = "true" ]; then
@@ -192,7 +199,7 @@ jobs:
 
   nginx-base-manifest:
     needs: [go-deps, nginx-base]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.verify_only != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -239,7 +246,7 @@ jobs:
   controller:
     name: controller (${{ matrix.arch }})
     needs: [go-deps, go-test, nginx-base-manifest]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.verify_only != true
     strategy:
       fail-fast: true
       matrix:
@@ -332,7 +339,7 @@ jobs:
 
   controller-manifest:
     needs: [go-deps, controller]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.verify_only != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -369,7 +376,7 @@ jobs:
   bitnami:
     name: bitnami-nginx-ingress-controller
     needs: [go-deps, controller-manifest]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.verify_only != true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
