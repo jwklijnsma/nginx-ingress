@@ -4,8 +4,8 @@
 annotations:
   category: Infrastructure
   images: |
-    - name: nginx
-      image: docker.io/bitnami/nginx:1.29.0-debian-12-r5
+    - name: default-backend
+      image: ghcr.io/jwklijnsma/nginx-ingress/default-backend:v1.15.1-jwk.5
     - name: nginx-ingress-controller
       image: ghcr.io/jwklijnsma/nginx-ingress/bitnami-nginx-ingress-controller:v1.15.1-jwk.5
   licenses: Apache-2.0

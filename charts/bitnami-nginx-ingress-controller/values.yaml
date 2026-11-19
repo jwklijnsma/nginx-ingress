@@ -524,12 +524,9 @@ podSecurityPolicy:
 ##
 defaultBackend:
   ## @param defaultBackend.enabled Enable a default backend based on NGINX
-  ## Disabled in this fork: the default image (bitnami/nginx 1.29.0, no longer updated) is
-  ## itself affected by the 2026 NGINX CVEs. With it off, the controller answers unmatched
-  ## requests with its own built-in 404 (same as the upstream ingress-nginx chart default).
-  ## Only enable it again with a patched NGINX image (>= 1.30.7 / 1.31.9).
+  ## Uses the patched default-backend image below (enabled by default, as in the Bitnami chart).
   ##
-  enabled: false
+  enabled: true
   ## @param defaultBackend.automountServiceAccountToken Mount Service Account token in pod
   ##
   automountServiceAccountToken: true
@@ -537,8 +534,11 @@ defaultBackend:
   ## https://kubernetes.io/docs/concepts/services-networking/add-entries-to-pod-etc-hosts-with-host-aliases/
   ##
   hostAliases: []
-  ## Bitnami NGINX image
-  ## ref: https://hub.docker.com/r/bitnami/nginx/tags/
+  ## Default backend image: patched NGINX 1.31.9 in the bitnami/nginx layout
+  ## (port 8080, serverBlockConfig from /opt/bitnami/nginx/conf/bitnami/, uid 1001),
+  ## built from images/default-backend. Replaces docker.io/bitnami/nginx, which is no
+  ## longer updated. This NGINX has no `root`/`alias`: serverBlockConfig can use
+  ## return/proxy_pass, not static files.
   ## @param defaultBackend.image.registry [default: REGISTRY_NAME] Default backend image registry
   ## @param defaultBackend.image.repository [default: REPOSITORY_NAME/nginx] Default backend image repository
   ## @skip defaultBackend.image.tag Default backend image tag (immutable tags are recommended)
@@ -547,9 +547,9 @@ defaultBackend:
   ## @param defaultBackend.image.pullSecrets Specify docker-registry secret names as an array
   ##
   image:
-    registry: docker.io
-    repository: bitnami/nginx
-    tag: 1.29.0-debian-12-r5
+    registry: ghcr.io
+    repository: jwklijnsma/nginx-ingress/default-backend
+    tag: v1.15.1-jwk.5
     digest: ""
     ## Specify a imagePullPolicy
     ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images

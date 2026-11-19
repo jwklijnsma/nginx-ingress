@@ -406,6 +406,8 @@ jobs:
           echo "T=$T" >> "$GITHUB_ENV"
       - name: Smoke test (uid 1001, capability kept, same NGINX)
         run: |
+          # started exactly like the Bitnami chart does: flags only, as args
+          docker run --rm "$T" --version
           docker run --rm --entrypoint id "$T" -u | grep -qx 1001
           docker run --rm --entrypoint sh "$T" -c 'touch /etc/nginx/nginx.conf /etc/ingress-controller/ssl/x /tmp/nginx/x'
           docker run --rm --entrypoint nginx "$T" -V 2>&1 | grep 'nginx/1.31.9'
@@ -418,3 +420,50 @@ jobs:
           D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           cosign sign --yes "${T%:*}@$D"
           echo "bitnami-nginx-ingress-controller: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
+
+  default-backend:
+    name: default-backend
+    needs: [go-deps, nginx-base-manifest]
+    if: github.event_name != 'pull_request' && inputs.verify_only != true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push (on the patched NGINX base)
+        run: |
+          SFX="${{ needs.go-deps.outputs.suffix }}"
+          T="${REGISTRY}/default-backend:$(cat TAG)${SFX}"
+          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+            --build-arg BASE_IMAGE="${REGISTRY}/nginx:$(cat images/nginx/TAG)${SFX}" \
+            --build-arg VERSION="$(cat TAG)${SFX}" \
+            -t "$T" --push images/default-backend/rootfs
+          echo "T=$T" >> "$GITHUB_ENV"
+      - name: Smoke test (as the Bitnami chart runs it)
+        run: |
+          docker run -d --name db --read-only --user 1001 \
+            --tmpfs /tmp:mode=1777 --tmpfs /opt/bitnami/nginx/tmp:mode=1777 \
+            -p 8080:8080 "$T"
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8080/healthz && break; sleep 0.5; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/any/path)" = 404
+          docker logs db 2>&1 | tee /tmp/db.log
+          ! grep -E '\[(emerg|alert|crit|error)\]' /tmp/db.log
+          docker run --rm --entrypoint nginx "$T" -V 2>&1 | grep 'nginx/1.31.9'
+      - name: Sign
+        run: |
+          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          cosign sign --yes "${T%:*}@$D"
+          echo "default-backend: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"

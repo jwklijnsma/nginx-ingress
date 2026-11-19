@@ -11,6 +11,7 @@
 >   |---|---|---|
 >   | `controller:v1.15.1-jwk.5` | upstream [kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx) layout (uid 101) | `charts/ingress-nginx` |
 >   | `bitnami-nginx-ingress-controller:v1.15.1-jwk.5` | same controller, Bitnami layout (uid 1001, group-0 writable) | `charts/bitnami-nginx-ingress-controller` |
+>   | `default-backend:v1.15.1-jwk.5` | patched NGINX in the `bitnami/nginx` layout (:8080, uid 1001) | default backend of `charts/bitnami-nginx-ingress-controller` |
 >   | `nginx:v2.2.9-jwk.5` | patched NGINX 1.31.9 base | both controllers |
 >   | `kube-webhook-certgen:v1.6.9-jwk.5` | admission webhook cert job | `charts/ingress-nginx` |
 > - Bitnami-style Helm chart: [`charts/bitnami-nginx-ingress-controller`](charts/bitnami-nginx-ingress-controller),
