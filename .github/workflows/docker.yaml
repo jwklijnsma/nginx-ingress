@@ -92,7 +92,9 @@ jobs:
         run: |
           if git diff --quiet; then
             echo "No dependency changes needed."
-            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            # the commit actually checked out (inputs.ref on release runs), not
+            # GITHUB_SHA, which for workflow_call is the caller's starting commit
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git --no-pager diff --stat
