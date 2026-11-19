@@ -60,7 +60,9 @@ extraDeploy: []
 clusterDomain: cluster.local
 ## @section Nginx Ingress Controller parameters
 
-## Patched ingress-nginx controller image (jwklijnsma fork).
+## Patched ingress-nginx controller image, Bitnami-style variant (uid 1001), from
+## images/bitnami-nginx-ingress-controller. The upstream-style image (uid 101) is
+## ghcr.io/jwklijnsma/nginx-ingress/controller and is used by charts/ingress-nginx.
 ## Built from https://github.com/jwklijnsma/nginx-ingress:
 ## upstream controller v1.15.1 + NGINX 1.31.9 with the OpenResty 1.31.8.1 patch set.
 ## The Bitnami image (docker.io/bitnami/nginx-ingress-controller) is no longer updated and
@@ -75,8 +77,8 @@ clusterDomain: cluster.local
 ##
 image:
   registry: ghcr.io
-  repository: jwklijnsma/nginx-ingress/controller
-  tag: v1.15.1-jwk.2
+  repository: jwklijnsma/nginx-ingress/bitnami-nginx-ingress-controller
+  tag: v1.15.1-jwk.3
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -281,8 +283,7 @@ podSecurityContext:
   fsGroupChangePolicy: Always
   sysctls: []
   supplementalGroups: []
-  ## upstream ingress-nginx image: files owned by www-data (uid 101 / gid 82)
-  fsGroup: 82
+  fsGroup: 1001
 ## Controller containers' Security Context (only main container)
 ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-container
 ## @param containerSecurityContext.enabled Enable Controller containers' Security Context
@@ -300,8 +301,8 @@ containerSecurityContext:
   enabled: true
   allowPrivilegeEscalation: false
   seLinuxOptions: {}
-  runAsUser: 101
-  runAsGroup: 82
+  runAsUser: 1001
+  runAsGroup: 1001
   readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
