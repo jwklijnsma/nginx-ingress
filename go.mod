@@ -40,7 +40,7 @@ require (
 	k8s.io/apiextensions-apiserver v0.37.2
 	k8s.io/apimachinery v0.37.2
 	k8s.io/apiserver v0.37.2
-	k8s.io/cli-runtime v0.35.3
+	k8s.io/cli-runtime v0.37.2
 	k8s.io/client-go v0.37.2
 	k8s.io/code-generator v0.37.2
 	k8s.io/component-base v0.37.2
