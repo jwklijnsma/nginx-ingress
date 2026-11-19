@@ -9,14 +9,14 @@
 >
 >   | Image | Based on | Used by |
 >   |---|---|---|
->   | `controller:v1.15.1-jwk.4` | upstream [kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx) layout (uid 101) | `charts/ingress-nginx` |
->   | `bitnami-nginx-ingress-controller:v1.15.1-jwk.4` | same controller, Bitnami layout (uid 1001, group-0 writable) | `charts/bitnami-nginx-ingress-controller` |
->   | `nginx:v2.2.9-jwk.4` | patched NGINX 1.31.9 base | both controllers |
->   | `kube-webhook-certgen:v1.6.9-jwk.4` | admission webhook cert job | `charts/ingress-nginx` |
+>   | `controller:v1.15.1-jwk.5` | upstream [kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx) layout (uid 101) | `charts/ingress-nginx` |
+>   | `bitnami-nginx-ingress-controller:v1.15.1-jwk.5` | same controller, Bitnami layout (uid 1001, group-0 writable) | `charts/bitnami-nginx-ingress-controller` |
+>   | `nginx:v2.2.9-jwk.5` | patched NGINX 1.31.9 base | both controllers |
+>   | `kube-webhook-certgen:v1.6.9-jwk.5` | admission webhook cert job | `charts/ingress-nginx` |
 > - Bitnami-style Helm chart: [`charts/bitnami-nginx-ingress-controller`](charts/bitnami-nginx-ingress-controller),
 >   published as `oci://ghcr.io/jwklijnsma/nginx-ingress/charts/nginx-ingress-controller`
 > - Upstream chart: [`charts/ingress-nginx`](charts/ingress-nginx), defaults to the patched controller and
->   kube-webhook-certgen images (`oci://ghcr.io/jwklijnsma/nginx-ingress/charts/ingress-nginx`, version `4.15.1-jwk.4`)
+>   kube-webhook-certgen images (`oci://ghcr.io/jwklijnsma/nginx-ingress/charts/ingress-nginx`, version `4.15.1-jwk.5`)
 > - CI: **Docker build** (Go CVE fixes, Go + Lua tests, images) and **Helm chart build** (lint, unittest, render checks)
 > - **Bot PRs fix and merge themselves**: every 30 min *Autofix and merge bot PRs* brings Dependabot/Renovate PRs
 >   up to date, runs `go mod tidy` + vulnerability fixes, re-runs CI and squash-merges green ones. PRs it cannot fix
@@ -27,7 +27,7 @@
 >
 > ```sh
 > helm install ingress oci://ghcr.io/jwklijnsma/nginx-ingress/charts/nginx-ingress-controller \
->   --version 12.0.3-jwk.4 -n ingress --create-namespace
+>   --version 12.0.3-jwk.5 -n ingress --create-namespace
 > ```
 
 ---
