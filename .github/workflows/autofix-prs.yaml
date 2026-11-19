@@ -1,0 +1,56 @@
+name: Autofix and merge bot PRs
+
+# Keeps Dependabot and Renovate PRs moving without manual work: brings them
+# up to date with main, runs go mod tidy + vulnerability fixes, re-runs CI and
+# squash-merges them once every check is green. See hack/fork/autofix-prs.sh.
+#
+# If a repository secret AUTOFIX_TOKEN (fine-grained PAT: contents, pull
+# requests and actions read/write on this repo) exists, it is used, so pushes
+# start the normal PR CI. Without it, the built-in GITHUB_TOKEN is used and the
+# script starts verification runs itself.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only print what would happen"
+        type: boolean
+        default: false
+  # re-evaluate soon after CI on a PR finishes
+  workflow_run:
+    workflows: ["Docker build", "Helm chart build"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  checks: read
+  statuses: write
+
+concurrency:
+  group: autofix-prs
+  cancel-in-progress: false
+
+jobs:
+  autofix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.AUTOFIX_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: GOLANG_VERSION
+
+      - name: Fix and merge
+        env:
+          GH_TOKEN: ${{ secrets.AUTOFIX_TOKEN || secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: hack/fork/autofix-prs.sh
