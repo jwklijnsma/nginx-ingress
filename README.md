@@ -5,8 +5,14 @@
 > nginx2root (CVE-2026-123007/-123633/-123634/-121810).
 > Details and the full CVE list are in [SECURITY-FORK.md](SECURITY-FORK.md).
 >
-> - Images: `ghcr.io/jwklijnsma/nginx-ingress/controller:v1.15.1-jwk.2`
->   (NGINX base: `ghcr.io/jwklijnsma/nginx-ingress/nginx:v2.2.9-jwk.2`), cosign-signed
+> - Images (cosign-signed, amd64/arm64), all from `ghcr.io/jwklijnsma/nginx-ingress/`:
+>
+>   | Image | Based on | Used by |
+>   |---|---|---|
+>   | `controller:v1.15.1-jwk.2` | upstream [kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx) layout (uid 101) | `charts/ingress-nginx` |
+>   | `bitnami-nginx-ingress-controller:v1.15.1-jwk.2` | same controller, Bitnami layout (uid 1001, group-0 writable) | `charts/bitnami-nginx-ingress-controller` |
+>   | `nginx:v2.2.9-jwk.2` | patched NGINX 1.31.9 base | both controllers |
+>   | `kube-webhook-certgen:v1.6.9-jwk.1` | admission webhook cert job | `charts/ingress-nginx` |
 > - Bitnami-style Helm chart: [`charts/bitnami-nginx-ingress-controller`](charts/bitnami-nginx-ingress-controller),
 >   published as `oci://ghcr.io/jwklijnsma/nginx-ingress/charts/nginx-ingress-controller`
 > - Upstream chart: [`charts/ingress-nginx`](charts/ingress-nginx), defaults to the patched controller and

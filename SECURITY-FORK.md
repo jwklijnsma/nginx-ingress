@@ -22,7 +22,7 @@ from 2026-11-18.
 | njs | 0.9.0 | 1.0.2 |
 | Alpine | 3.23.3 | 3.23 (latest point release), `patch` removed from runtime image |
 | kube-webhook-certgen | registry.k8s.io v1.6.9 | rebuilt with Go 1.26.11 and fixed modules |
-| Images | registry.k8s.io | `ghcr.io/jwklijnsma/nginx-ingress/{nginx,controller,kube-webhook-certgen}` (cosign-signed) |
+| Images | registry.k8s.io | `ghcr.io/jwklijnsma/nginx-ingress/{nginx,controller,bitnami-nginx-ingress-controller,kube-webhook-certgen}` (cosign-signed) |
 
 Patch notes:
 * `CVE-2025-23419` patch dropped: fixed in core since 1.27.4.

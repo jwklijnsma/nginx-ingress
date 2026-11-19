@@ -12,6 +12,8 @@ name: Docker build
 # 3. images    : NGINX base, controller and kube-webhook-certgen, amd64 + arm64
 #                on native runners, merged into multi-arch tags, signed with
 #                cosign and scanned with Trivy.
+#                bitnami-nginx-ingress-controller: the same controller as a
+#                uid-1001 (Bitnami-style) variant, for charts/bitnami-*.
 
 on:
   workflow_call:
@@ -361,3 +363,49 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "0"
+
+  bitnami:
+    name: bitnami-nginx-ingress-controller
+    needs: [go-deps, controller-manifest]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.go-deps.outputs.sha }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push (layer on the patched controller)
+        run: |
+          V="$(cat TAG)${{ needs.go-deps.outputs.suffix }}"
+          T="${REGISTRY}/bitnami-nginx-ingress-controller:${V}"
+          docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
+            --build-arg CONTROLLER_IMAGE="${REGISTRY}/controller:${V}" \
+            --build-arg VERSION="${V}" \
+            --build-arg COMMIT_SHA="${{ needs.go-deps.outputs.sha }}" \
+            -t "$T" --push images/bitnami-nginx-ingress-controller/rootfs
+          echo "T=$T" >> "$GITHUB_ENV"
+      - name: Smoke test (uid 1001, capability kept, same NGINX)
+        run: |
+          docker run --rm --entrypoint id "$T" -u | grep -qx 1001
+          docker run --rm --entrypoint sh "$T" -c 'touch /etc/nginx/nginx.conf /etc/ingress-controller/ssl/x /tmp/nginx/x'
+          docker run --rm --entrypoint nginx "$T" -V 2>&1 | grep 'nginx/1.31.9'
+          docker run --rm --entrypoint /nginx-ingress-controller "$T" --version
+          docker run --rm --user root --entrypoint sh "$T" -c \
+            'apk add -q --no-cache libcap >/dev/null && getcap /nginx-ingress-controller /usr/local/nginx/sbin/nginx' | tee /tmp/caps
+          grep -c cap_net_bind_service /tmp/caps | grep -qx 2
+      - name: Sign
+        run: |
+          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          cosign sign --yes "${T%:*}@$D"
+          echo "bitnami-nginx-ingress-controller: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
