@@ -344,8 +344,9 @@ cd "$BUILD_PATH"
 git clone -n https://github.com/owasp-modsecurity/ModSecurity
 cd ModSecurity/
 git checkout $MODSECURITY_LIB_VERSION
-git submodule init
-git submodule update
+# --recursive: ModSecurity >= 3.0.16 vendors Mbed TLS, whose tf-psa-crypto and
+# framework are nested submodules (configure checks tf-psa-crypto/utilities/base64.c)
+git submodule update --init --recursive --depth 1 --jobs 4
 
 sh build.sh
 
