@@ -143,6 +143,7 @@ jobs:
           CTRL="${REGISTRY}/controller:$(cat TAG)"
           BASE="${REGISTRY}/nginx:$(cat images/nginx/TAG)"
           CERT="${REGISTRY}/kube-webhook-certgen:$(cat images/kube-webhook-certgen/TAG)"
+          BITN="${REGISTRY}/bitnami-nginx-ingress-controller:$(cat TAG)"
           CHART_UP="$(sed -nE 's/^version: (.*)/\1/p' charts/ingress-nginx/Chart.yaml)"
           CHART_BN="$(sed -nE 's/^version: (.*)/\1/p' charts/bitnami-nginx-ingress-controller/Chart.yaml)"
           RANGE="${PREVIOUS:+${PREVIOUS}..}${VERSION}"
@@ -155,6 +156,7 @@ jobs:
             echo "${CTRL}@$(digest "$CTRL")"
             echo "${BASE}@$(digest "$BASE")"
             echo "${CERT}@$(digest "$CERT")"
+            echo "${BITN}@$(digest "$BITN")   # Bitnami-style (uid 1001)"
             echo '```'
             echo
             echo "Verify: \`cosign verify ${CTRL} --certificate-identity-regexp 'https://github.com/${{ github.repository }}/' --certificate-oidc-issuer https://token.actions.githubusercontent.com\`"
