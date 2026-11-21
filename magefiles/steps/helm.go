@@ -24,7 +24,7 @@ import (
 	semver "github.com/blang/semver/v4"
 	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 	chartutil "helm.sh/helm/v4/pkg/chart/v2/util"
 
 	utils "k8s.io/ingress-nginx/magefiles/utils"
