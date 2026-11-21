@@ -41,7 +41,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
           cache: false
@@ -57,7 +57,7 @@ jobs:
 
       - name: Switch to the Go version the stdlib fixes need
         if: steps.fix.outputs.rc == '3'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
           cache: false
