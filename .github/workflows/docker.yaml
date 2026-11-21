@@ -55,7 +55,7 @@ env:
 jobs:
   go-deps:
     name: Go vulnerability fixes
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     outputs:
@@ -131,7 +131,7 @@ jobs:
   go-test:
     name: Go unit tests
     needs: go-deps
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -200,7 +200,7 @@ jobs:
   nginx-base-manifest:
     needs: [go-deps, nginx-base]
     if: github.event_name != 'pull_request' && inputs.verify_only != true
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -227,7 +227,7 @@ jobs:
   lua-test:
     name: Lua unit tests
     needs: [go-deps, nginx-base-manifest]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -303,7 +303,7 @@ jobs:
   certgen:
     name: kube-webhook-certgen
     needs: go-deps
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -340,7 +340,7 @@ jobs:
   controller-manifest:
     needs: [go-deps, controller]
     if: github.event_name != 'pull_request' && inputs.verify_only != true
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -377,7 +377,7 @@ jobs:
     name: bitnami-nginx-ingress-controller
     needs: [go-deps, controller-manifest]
     if: github.event_name != 'pull_request' && inputs.verify_only != true
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -425,7 +425,7 @@ jobs:
     name: default-backend
     needs: [go-deps, nginx-base-manifest]
     if: github.event_name != 'pull_request' && inputs.verify_only != true
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
