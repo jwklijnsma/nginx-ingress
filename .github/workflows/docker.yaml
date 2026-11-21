@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.sha }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
           cache: false
@@ -82,7 +82,7 @@ jobs:
 
       - name: Switch to the Go version the stdlib fixes need
         if: steps.fix.outputs.rc == '3'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
           cache: false
@@ -136,7 +136,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.go-deps.outputs.sha }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
       - name: Test environment (what upstream's test-runner image provides)
@@ -262,7 +262,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.go-deps.outputs.sha }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
       - name: Build controller binaries
