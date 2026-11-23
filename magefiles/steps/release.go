@@ -203,7 +203,10 @@ func githubClient() *github.Client {
 		&oauth2.Token{AccessToken: GITHUB_TOKEN},
 	)
 	oauthClient := oauth2.NewClient(ctx, ts)
-	return github.NewClient(oauthClient)
+	// go-github v93: NewClient takes options and returns an error
+	client, err := github.NewClient(github.WithHTTPClient(oauthClient))
+	utils.CheckIfError(err, "creating GitHub client")
+	return client
 }
 
 // LatestCommitLogs Retrieves the commit log between the latest two controller versions.
