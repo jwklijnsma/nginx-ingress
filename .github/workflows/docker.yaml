@@ -220,7 +220,7 @@ jobs:
         run: |
           T="${REGISTRY}/nginx:$(cat images/nginx/TAG)${{ needs.go-deps.outputs.suffix }}"
           docker buildx imagetools create -t "$T" "$T-amd64" "$T-arm64"
-          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          D="$(hack/fork/image-digest.sh "$T")"
           cosign sign --yes "${T%:*}@$D"
           echo "nginx base: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
 
@@ -328,7 +328,7 @@ jobs:
             docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
               --build-arg GOLANG_VERSION="$(cat GOLANG_VERSION)" \
               -t "$T" --push images/kube-webhook-certgen/rootfs
-            D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            D="$(hack/fork/image-digest.sh "$T")"
             cosign sign --yes "${T%:*}@$D"
             echo "kube-webhook-certgen: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -361,7 +361,7 @@ jobs:
         run: |
           T="${REGISTRY}/controller:$(cat TAG)${{ needs.go-deps.outputs.suffix }}"
           docker buildx imagetools create -t "$T" "$T-amd64" "$T-arm64"
-          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          D="$(hack/fork/image-digest.sh "$T")"
           cosign sign --yes "${T%:*}@$D"
           echo "image=$T@$D" >> "$GITHUB_OUTPUT"
           echo "controller: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
@@ -417,7 +417,7 @@ jobs:
           grep -c cap_net_bind_service /tmp/caps | grep -qx 2
       - name: Sign
         run: |
-          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          D="$(hack/fork/image-digest.sh "$T")"
           cosign sign --yes "${T%:*}@$D"
           echo "bitnami-nginx-ingress-controller: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"
 
@@ -464,6 +464,6 @@ jobs:
           docker run --rm --entrypoint nginx "$T" -V 2>&1 | grep 'nginx/1.31.9'
       - name: Sign
         run: |
-          D="$(docker buildx imagetools inspect "$T" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          D="$(hack/fork/image-digest.sh "$T")"
           cosign sign --yes "${T%:*}@$D"
           echo "default-backend: \`$T@$D\`" >> "$GITHUB_STEP_SUMMARY"

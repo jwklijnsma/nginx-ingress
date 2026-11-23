@@ -139,7 +139,7 @@ jobs:
 
       - name: Write release notes
         run: |
-          digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' | tr -d '"'; }
+          digest() { hack/fork/image-digest.sh "$1"; }
           CTRL="${REGISTRY}/controller:$(cat TAG)"
           BASE="${REGISTRY}/nginx:$(cat images/nginx/TAG)"
           CERT="${REGISTRY}/kube-webhook-certgen:$(cat images/kube-webhook-certgen/TAG)"
