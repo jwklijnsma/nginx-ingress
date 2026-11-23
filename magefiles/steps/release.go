@@ -24,10 +24,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/google/go-github/v48/github"
+	"github.com/google/go-github/v93/github"
 	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 	"golang.org/x/oauth2"
 
 	utils "k8s.io/ingress-nginx/magefiles/utils"

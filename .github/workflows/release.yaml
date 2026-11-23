@@ -28,7 +28,7 @@ concurrency:
 jobs:
   prepare:
     name: Bump versions and tag
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     outputs:
@@ -41,7 +41,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
           cache: false
@@ -57,7 +57,7 @@ jobs:
 
       - name: Switch to the Go version the stdlib fixes need
         if: steps.fix.outputs.rc == '3'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: GOLANG_VERSION
           cache: false
@@ -116,7 +116,7 @@ jobs:
   github-release:
     name: GitHub Release
     needs: [prepare, docker, helm]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       packages: read
@@ -144,6 +144,7 @@ jobs:
           BASE="${REGISTRY}/nginx:$(cat images/nginx/TAG)"
           CERT="${REGISTRY}/kube-webhook-certgen:$(cat images/kube-webhook-certgen/TAG)"
           BITN="${REGISTRY}/bitnami-nginx-ingress-controller:$(cat TAG)"
+          DFLT="${REGISTRY}/default-backend:$(cat TAG)"
           CHART_UP="$(sed -nE 's/^version: (.*)/\1/p' charts/ingress-nginx/Chart.yaml)"
           CHART_BN="$(sed -nE 's/^version: (.*)/\1/p' charts/bitnami-nginx-ingress-controller/Chart.yaml)"
           RANGE="${PREVIOUS:+${PREVIOUS}..}${VERSION}"
@@ -157,6 +158,7 @@ jobs:
             echo "${BASE}@$(digest "$BASE")"
             echo "${CERT}@$(digest "$CERT")"
             echo "${BITN}@$(digest "$BITN")   # Bitnami-style (uid 1001)"
+            echo "${DFLT}@$(digest "$DFLT")   # default backend for the Bitnami chart"
             echo '```'
             echo
             echo "Verify: \`cosign verify ${CTRL} --certificate-identity-regexp 'https://github.com/${{ github.repository }}/' --certificate-oidc-issuer https://token.actions.githubusercontent.com\`"

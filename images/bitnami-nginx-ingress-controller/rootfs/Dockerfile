@@ -40,5 +40,9 @@ RUN set -eu; \
 
 USER 1001
 
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["/nginx-ingress-controller"]
+# Like docker.io/bitnami/nginx-ingress-controller, the controller binary is part
+# of the entrypoint: the Bitnami chart passes only flags as `args`
+# (--default-backend-service=..., --http-port=...). With the upstream entrypoint
+# (dumb-init alone) dumb-init would try to execute the first flag.
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/nginx-ingress-controller"]
+CMD []
