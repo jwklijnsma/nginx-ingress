@@ -78,7 +78,7 @@ clusterDomain: cluster.local
 image:
   registry: ghcr.io
   repository: jwklijnsma/nginx-ingress/bitnami-nginx-ingress-controller
-  tag: v1.15.1-jwk.6
+  tag: v1.15.1-jwk.7
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -549,7 +549,7 @@ defaultBackend:
   image:
     registry: ghcr.io
     repository: jwklijnsma/nginx-ingress/default-backend
-    tag: v1.15.1-jwk.6
+    tag: v1.15.1-jwk.7
     digest: ""
     ## Specify a imagePullPolicy
     ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
