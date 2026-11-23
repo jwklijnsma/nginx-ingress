@@ -8,7 +8,7 @@ require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/eapache/channels v1.1.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/google/go-github/v48 v48.2.0
+	github.com/google/go-github/v93 v93.0.0
 	github.com/json-iterator/go v1.1.12
 	github.com/kylelemons/godebug v1.1.0
 	github.com/magefile/mage v1.17.2
@@ -117,7 +117,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.5 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto/openpgp v0.1.0-deprecated // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.25.0 // indirect
