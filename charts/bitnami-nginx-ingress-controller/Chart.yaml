@@ -5,9 +5,9 @@ annotations:
   category: Infrastructure
   images: |
     - name: default-backend
-      image: ghcr.io/jwklijnsma/nginx-ingress/default-backend:v1.15.1-jwk.7
+      image: ghcr.io/jwklijnsma/nginx-ingress/default-backend:v1.15.1-jwk.8
     - name: nginx-ingress-controller
-      image: ghcr.io/jwklijnsma/nginx-ingress/bitnami-nginx-ingress-controller:v1.15.1-jwk.7
+      image: ghcr.io/jwklijnsma/nginx-ingress/bitnami-nginx-ingress-controller:v1.15.1-jwk.8
   licenses: Apache-2.0
   tanzuCategory: clusterUtility
 apiVersion: v2
@@ -37,4 +37,4 @@ name: nginx-ingress-controller
 sources:
 - https://github.com/jwklijnsma/nginx-ingress
 - https://github.com/bitnami/charts/tree/main/bitnami/nginx-ingress-controller
-version: 12.0.3-jwk.7
+version: 12.0.3-jwk.8
